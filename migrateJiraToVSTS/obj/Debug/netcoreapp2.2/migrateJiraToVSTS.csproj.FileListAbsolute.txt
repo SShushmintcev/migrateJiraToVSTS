@@ -1,0 +1,11 @@
+D:\Repositories\migrateJiraToVSTS\migrateJiraToVSTS\bin\Debug\netcoreapp2.2\migrateJiraToVSTS.deps.json
+D:\Repositories\migrateJiraToVSTS\migrateJiraToVSTS\bin\Debug\netcoreapp2.2\migrateJiraToVSTS.runtimeconfig.json
+D:\Repositories\migrateJiraToVSTS\migrateJiraToVSTS\bin\Debug\netcoreapp2.2\migrateJiraToVSTS.runtimeconfig.dev.json
+D:\Repositories\migrateJiraToVSTS\migrateJiraToVSTS\bin\Debug\netcoreapp2.2\migrateJiraToVSTS.dll
+D:\Repositories\migrateJiraToVSTS\migrateJiraToVSTS\obj\Debug\netcoreapp2.2\migrateJiraToVSTS.csprojAssemblyReference.cache
+D:\Repositories\migrateJiraToVSTS\migrateJiraToVSTS\obj\Debug\netcoreapp2.2\migrateJiraToVSTS.csproj.CoreCompileInputs.cache
+D:\Repositories\migrateJiraToVSTS\migrateJiraToVSTS\obj\Debug\netcoreapp2.2\migrateJiraToVSTS.AssemblyInfoInputs.cache
+D:\Repositories\migrateJiraToVSTS\migrateJiraToVSTS\obj\Debug\netcoreapp2.2\migrateJiraToVSTS.AssemblyInfo.cs
+D:\Repositories\migrateJiraToVSTS\migrateJiraToVSTS\bin\Debug\netcoreapp2.2\migrateJiraToVSTS.pdb
+D:\Repositories\migrateJiraToVSTS\migrateJiraToVSTS\obj\Debug\netcoreapp2.2\migrateJiraToVSTS.dll
+D:\Repositories\migrateJiraToVSTS\migrateJiraToVSTS\obj\Debug\netcoreapp2.2\migrateJiraToVSTS.pdb
