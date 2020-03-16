@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Atlassian.Jira;
 using Microsoft.TeamFoundation.Core.WebApi;
@@ -22,26 +23,43 @@ namespace migrateJiraToVSTS
 
         private readonly Dictionary<string, int> _parents = new Dictionary<string, int>();
 
+        /// <summary>
+        /// Implement tfs client.
+        /// </summary>
+        /// <param name="projectId">Id project in namespace</param>
+        /// <param name="url">https://****.visualstudio.com</param>
+        /// <param name="key">AuthToken</param>
         public TfsClient(Guid projectId, string url, string key)
         {
             _projectId = projectId;
             _connection = new VssConnection(new Uri(url), new VssBasicCredential(string.Empty, key));
         }
 
-        public Task<List<TeamMember>> GetMembers(Guid teamId, int? top = null, int? skip = null)
+        public async Task<List<TeamMember>> GetMembersAsync(Guid teamId, int? top = null, int? skip = null)
         {
-            var teamClient = _connection.GetClient<TeamHttpClient>();
-            return teamClient.GetTeamMembersWithExtendedPropertiesAsync(_projectId.ToString(), teamId.ToString(), top,
-                skip);
+            var client = await _connection.GetClientAsync<TeamHttpClient>();
+            return await client.GetTeamMembersWithExtendedPropertiesAsync(_projectId.ToString(), teamId.ToString(), top, skip);
         }
 
-        public Task<WorkItemClassificationNode> GetClassificationNode(TreeStructureGroup group)
+        public async Task<WorkItemQueryResult> GetWorkItemsByTypeAsync(string type, string projectName)
         {
-            var workItemClient = _connection.GetClient<WorkItemTrackingHttpClient>();
-            return workItemClient.GetClassificationNodeAsync(_projectId, group, null, 10);
+            var client = await _connection.GetClientAsync<WorkItemTrackingHttpClient>();
+
+            var wiql = new Wiql
+            {
+                Query = $"SELECT [System.Id], [System.Title] FROM WorkItems WHERE [System.WorkItemType] = '{type}' and [System.TeamProject] = '{projectName}'"
+            };
+
+            return await client.QueryByWiqlAsync(wiql, _projectId);
         }
 
-        public Task<WorkItemClassificationNode> CreateSprintAsync(string name, string parentPath,
+        public async Task<WorkItemClassificationNode> GetClassificationNodeAsync(TreeStructureGroup group)
+        {
+            var client = await _connection.GetClientAsync<WorkItemTrackingHttpClient>();
+            return await client.GetClassificationNodeAsync(_projectId, group, null, 10);
+        }
+
+        public async Task<WorkItemClassificationNode> CreateSprintAsync(string name, string parentPath,
             TreeNodeStructureType type = TreeNodeStructureType.Iteration, IDictionary<string, object> attributes = null)
         {
             var node = new WorkItemClassificationNode
@@ -60,43 +78,52 @@ namespace migrateJiraToVSTS
                 node.Attributes = attributes;
             }
 
-            var workItemClient = _connection.GetClient<WorkItemTrackingHttpClient>();
-
             var group = type == TreeNodeStructureType.Iteration
                 ? TreeStructureGroup.Iterations
                 : TreeStructureGroup.Areas;
 
-            return workItemClient.CreateOrUpdateClassificationNodeAsync(node, _projectId, group);
+            var workItemClient = await _connection.GetClientAsync<WorkItemTrackingHttpClient>();
+            return await workItemClient.CreateOrUpdateClassificationNodeAsync(node, _projectId, group);
         }
 
-        public Task<WorkItem> GetItemAsync(int id)
+        public async Task<WorkItem> GetItemAsync(int id)
         {
-            var workItemClient = _connection.GetClient<WorkItemTrackingHttpClient>();
-
-            return workItemClient.GetWorkItemAsync(_projectId, id);
+            var workItemClient = await _connection.GetClientAsync<WorkItemTrackingHttpClient>();
+            return await workItemClient.GetWorkItemAsync(_projectId, id);
         }
 
-        public Task CreateCommentAsync(JsonPatchDocument document, int id)
+        public async Task<TeamProject> GetTeamProjectAsync(Guid projectId)
         {
-            var client = _connection.GetClient<WorkItemTrackingHttpClient>();
-            return client.UpdateWorkItemAsync(document, id, bypassRules: true);
+            var projectClient = await _connection.GetClientAsync<ProjectHttpClient>();
+            return await projectClient.GetProject(projectId.ToString());
         }
 
-        public Task<CommentList> GetItemCommentsAsync(int id)
+        public Task<TeamProject> GetCurrentTeamProjectAsync()
         {
-            var workItemClient = _connection.GetClient<WorkItemTrackingHttpClient>();
-            return workItemClient.GetCommentsAsync(_projectId, id);
+            return GetTeamProjectAsync(_projectId);
         }
 
-        public Task DeleteCommentAsync(int itemId, int commentId)
+        public async Task<WorkItem> UpdateAsync(JsonPatchDocument document, int id)
         {
-            var workItemClient = _connection.GetClient<WorkItemTrackingHttpClient>();
-            return workItemClient.DeleteCommentAsync(_projectId, itemId, commentId);
+            var client = await _connection.GetClientAsync<WorkItemTrackingHttpClient>();
+            return await client.UpdateWorkItemAsync(document, id, bypassRules: true);
+        }
+
+        public async Task<CommentList> GetItemCommentsAsync(int id)
+        {
+            var workItemClient = await _connection.GetClientAsync<WorkItemTrackingHttpClient>();
+            return await workItemClient.GetCommentsAsync(_projectId, id);
+        }
+
+        public async Task DeleteCommentAsync(int itemId, int commentId)
+        {
+            var workItemClient = await _connection.GetClientAsync<WorkItemTrackingHttpClient>();
+            await workItemClient.DeleteCommentAsync(_projectId, itemId, commentId);
         }
 
         public async Task DeleteCommentsAsync(int itemId, IEnumerable<int> commentIds)
         {
-            var workItemClient = _connection.GetClient<WorkItemTrackingHttpClient>();
+            var workItemClient = await _connection.GetClientAsync<WorkItemTrackingHttpClient>();
 
             foreach (var i in commentIds)
             {
@@ -106,7 +133,9 @@ namespace migrateJiraToVSTS
 
         public async Task Migration(List<Issue> issues)
         {
-            var workItemClient = _connection.GetClient<WorkItemTrackingHttpClient>();
+            var workItemClient = await _connection.GetClientAsync<WorkItemTrackingHttpClient>();
+
+            var project = await GetCurrentTeamProjectAsync();
 
             var countMigrate = issues.Count;
 
@@ -114,7 +143,7 @@ namespace migrateJiraToVSTS
 
             foreach (var issue in issues)
             {
-                var document = await CreateJsonAsync(issue);
+                var document = await CreateJsonAsync(issue, project);
 
                 var links = await ResolveLinkAsync(issue);
 
@@ -144,8 +173,7 @@ namespace migrateJiraToVSTS
                     }
 
                     countMigrate--;
-                    Console.WriteLine(
-                        $"Issue was migrate: Jira:{issue.Key.Value} TFS Id {workItem.Id}. Count {countMigrate}");
+                    Console.WriteLine($"Issue was migrate: Jira:{issue.Key.Value} TFS Id {workItem.Id}. Count {countMigrate}");
                 }
                 catch (Exception e)
                 {
@@ -160,6 +188,41 @@ namespace migrateJiraToVSTS
                 }
 
                 await CreateCommentsAsync(workItemClient, workItem.Id.Value, issue);
+            }
+        }
+
+        public async Task UpdateRepoStepsForBugIssuesAsync(string importTaskPattern, string repoText)
+        {
+            var project = await GetCurrentTeamProjectAsync();
+            var list = await GetWorkItemsByTypeAsync("Bug", project.Name);
+
+            foreach (var reference in list.WorkItems)
+            {
+                var item = await GetItemAsync(reference.Id);
+
+                Console.WriteLine($"Team project: {item.Fields["System.TeamProject"]} Item Id: {item.Id}. Title: {item.Fields["System.Title"]}");
+
+                if (Regex.IsMatch(item.Fields["System.Title"].ToString(), importTaskPattern))
+                {
+                    try
+                    {
+                        var document = new JsonPatchDocument
+                        {
+                            new JsonPatchOperation
+                            {
+                                Operation = Operation.Add,
+                                Path = "/fields/Microsoft.VSTS.TCM.ReproSteps",
+                                Value = repoText
+                            }
+                        };
+
+                        await UpdateAsync(document, item.Id.Value);
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine(e);
+                    }
+                }
             }
         }
 
@@ -193,7 +256,7 @@ namespace migrateJiraToVSTS
             return null;
         }
 
-        private async Task<JsonPatchDocument> CreateJsonAsync(Issue issue)
+        private async Task<JsonPatchDocument> CreateJsonAsync(Issue issue, TeamProject project)
         {
             var sprint = issue.CustomFields["Sprint"];
 
@@ -203,13 +266,13 @@ namespace migrateJiraToVSTS
                 {
                     Operation = Operation.Add,
                     Path = "/fields/System.TeamProject",
-                    Value = "CoinsCloud"
+                    Value = project.Name
                 },
                 new JsonPatchOperation
                 {
                     Operation = Operation.Add,
                     Path = "/fields/System.AreaPath",
-                    Value = "CoinsCloud"
+                    Value = project.Name
                 },
                 new JsonPatchOperation
                 {
@@ -265,9 +328,19 @@ namespace migrateJiraToVSTS
                 });
             }
 
+            if (issue.Type == "Bug")
+            {
+                document.Add(new JsonPatchOperation
+                {
+                    Operation = Operation.Add,
+                    Path = "/fields/Microsoft.VSTS.TCM.ReproSteps",
+                    Value = issue.Description ?? String.Empty
+                });
+            }
+
             if (sprint != null)
             {
-                var parentNode = await GetClassificationNode(TreeStructureGroup.Iterations);
+                var parentNode = await GetClassificationNodeAsync(TreeStructureGroup.Iterations);
                 document.Add(new JsonPatchOperation
                 {
                     Operation = Operation.Add,
@@ -322,8 +395,7 @@ namespace migrateJiraToVSTS
                 }
                 catch (Exception e)
                 {
-                    Console.WriteLine(
-                        $"Error: Add Comments item in jira - {item.Key.Value} in TFS - {id}. Message: {e.Message}");
+                    Console.WriteLine($"Error: Add Comments item in jira - {item.Key.Value} in TFS - {id}. Message: {e.Message}");
                 }
             }
         }
@@ -445,7 +517,7 @@ namespace migrateJiraToVSTS
                 case "High": return 2;
                 case "Medium": return 3;
                 case "Low":
-                case "Lowest": return 4;
+                case "Lowest":
                 default: return 4;
             }
         }
